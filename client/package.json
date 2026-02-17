@@ -1,0 +1,52 @@
+{
+  "name": "client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.2.0",
+    "@fortawesome/free-solid-svg-icons": "^7.2.0",
+    "@fortawesome/react-fontawesome": "^3.2.0",
+    "axios": "^1.13.2",
+    "framer-motion": "^12.34.0",
+    "linguasetu-theme-abyss": "file:../themes/linguasetu-theme-abyss",
+    "linguasetu-theme-cyberpunk": "file:../themes/linguasetu-theme-cyberpunk",
+    "linguasetu-theme-forest": "file:../themes/linguasetu-theme-forest",
+    "linguasetu-theme-lavender": "file:../themes/linguasetu-theme-lavender",
+    "linguasetu-theme-lemon": "file:../themes/linguasetu-theme-lemon",
+    "linguasetu-theme-midnight": "file:../themes/linguasetu-theme-midnight",
+    "linguasetu-theme-mint": "file:../themes/linguasetu-theme-mint",
+    "linguasetu-theme-nebula": "file:../themes/linguasetu-theme-nebula",
+    "linguasetu-theme-ocean": "file:../themes/linguasetu-theme-ocean",
+    "linguasetu-theme-rose": "file:../themes/linguasetu-theme-rose",
+    "linguasetu-theme-royal": "file:../themes/linguasetu-theme-royal",
+    "linguasetu-theme-sand": "file:../themes/linguasetu-theme-sand",
+    "linguasetu-theme-solar": "file:../themes/linguasetu-theme-solar",
+    "linguasetu-theme-sunset": "file:../themes/linguasetu-theme-sunset",
+    "linguasetu-theme-toxic": "file:../themes/linguasetu-theme-toxic",
+    "linguasetu-theme-volcano": "file:../themes/linguasetu-theme-volcano",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.12.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.23",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "vite": "^7.2.4"
+  }
+}

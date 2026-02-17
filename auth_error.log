@@ -1,0 +1,5 @@
+{
+  "message": "Server Error",
+  "error": "Operation `users.findOne()` buffering timed out after 10000ms",
+  "stack": "MongooseError: Operation `users.findOne()` buffering timed out after 10000ms\n    at Timeout._onTimeout (C:\\Users\\Acer\\OneDrive\\Codings\\Sahil\\server\\node_modules\\mongoose\\lib\\drivers\\node-mongodb-native\\collection.js:131:25)\n    at listOnTimeout (node:internal/timers:594:17)\n    at process.processTimers (node:internal/timers:529:7)"
+}
