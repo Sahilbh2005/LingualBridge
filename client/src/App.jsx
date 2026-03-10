@@ -64,6 +64,7 @@ function App() {
               <Route path="translation" element={<Translation />} />
               <Route path="learning" element={<Learning />} />
               <Route path="learning/:courseId" element={<CourseDetail />} />
+              <Route path="learn/:courseId" element={<CourseDetail />} />
               <Route path="courses/:courseId" element={<CourseDetail />} />
               <Route path="courses/:courseId/chapter/:chapterId" element={<LessonView />} />
               <Route path="lesson/:lessonId" element={<DuolingoLesson />} />

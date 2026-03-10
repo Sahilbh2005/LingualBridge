@@ -1,0 +1,65 @@
+// Example Content Structure (Seed Data Format)
+[
+  // 1. Languages
+  {
+    "model": "Language",
+    "data": {
+      "name": "Hindi",
+      "code": "HI",
+      "nativeName": "हिंदी",
+      "flag": "🇮🇳"
+    }
+  },
+  {
+    "model": "Language",
+    "data": {
+      "name": "Marathi",
+      "code": "MR",
+      "nativeName": "मराठी",
+      "flag": "🇮🇳"
+    }
+  },
+
+  // 2. Sections
+  {
+    "model": "SectionTemplate",
+    "data": {
+      "templateId": "greetings",
+      "title": "Greetings & Basics",
+      "description": "Essential phrases for everyday conversation"
+    }
+  },
+
+  // 3. Vocabulary (Scalable Content)
+  {
+    "model": "Vocabulary",
+    "data": [
+      {
+        "language": "Hindi",
+        "category": "greetings",
+        "word": "नमस्ते",
+        "transliteration": "Namaste",
+        "meaning": "Hello",
+        "pronunciation": "Na-mas-te",
+        "example": {
+          "native": "नमस्ते, आप कैसे हैं?",
+          "transliteration": "Namaste, aap kaise hain?", 
+          "english": "Hello, how are you?"
+        }
+      },
+      {
+        "language": "Marathi",
+        "category": "greetings",
+        "word": "नमस्कार",
+        "transliteration": "Namaskar",
+        "meaning": "Hello",
+        "pronunciation": "Na-mas-kar",
+        "example": {
+          "native": "नमस्कार! तुं कस आहास?",
+          "transliteration": "Namaskar! Tu kasa ahes?", 
+          "english": "Hello! How are you?"
+        }
+      }
+    ]
+  }
+]

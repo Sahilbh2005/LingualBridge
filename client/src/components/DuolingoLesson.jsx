@@ -14,8 +14,11 @@ import {
     faFire,
     faRotate,
     faBook,
-    faTableList
+    faTableList,
+    faLanguage,
+    faCaretDown
 } from '@fortawesome/free-solid-svg-icons';
+import localizationData from '../data/localizationData';
 
 const DEVANAGARI_MATRAS = [
     { symbol: '', label: 'a' },
@@ -33,7 +36,7 @@ const DEVANAGARI_MATRAS = [
     { symbol: 'ः', label: 'ah' }
 ];
 
-const VocabularyCard = ({ vocab, speak }) => {
+const VocabularyCard = ({ vocab, speak, transLanguage, getTransliteration }) => {
     const [showBarakhadi, setShowBarakhadi] = useState(false);
     
     // Check if it's a consonant to show Barakhadi option
@@ -122,7 +125,7 @@ const VocabularyCard = ({ vocab, speak }) => {
             {vocab.nativeFigure && (
                 <div className="mb-8 w-full flex justify-center px-2">
                     <div className="bg-primary/5 px-6 py-4 rounded-[2.5rem] ring-4 ring-primary/10 shadow-sm transition-all group-hover:bg-primary/10 group-hover:scale-110 duration-500 border border-primary/10 min-w-fit max-w-full overflow-visible">
-                        <span className={`font-black text-primary/80 leading-none whitespace-nowrap
+                        <span className={`font-black text-primary leading-none whitespace-nowrap
                             ${(vocab.nativeFigure || "").length > 8 ? 'text-3xl' : 'text-5xl'}
                         `}>
                             {vocab.nativeFigure}
@@ -159,9 +162,31 @@ const VocabularyCard = ({ vocab, speak }) => {
                     {vocab.wordNative || vocab.word}
                 </h3>
             </div>
-            <p className="text-xl text-text opacity-40 font-bold italic mb-3">"{vocab.transliteration}"</p>
+            <p className="text-xl text-text opacity-40 font-bold italic mb-3">
+                "{getTransliteration(vocab.wordNative || vocab.word, transLanguage) || vocab.transliteration}"
+            </p>
             <div className="h-1 w-12 bg-primary/10 rounded-full mb-6" />
-            <p className="text-2xl font-black text-text italic tracking-wide mb-8">{vocab.englishMeaning || vocab.meaning}</p>
+            <p className="text-2xl font-black text-text italic tracking-wide mb-4">{vocab.englishMeaning || vocab.meaning}</p>
+            
+            {vocab.example && (
+                <div className="w-full mt-4 p-4 bg-background/50 rounded-2xl border border-text/5 text-left relative group/example">
+                    <p className="text-sm font-bold text-primary mb-1 uppercase tracking-widest opacity-60">Example</p>
+                    <p className="text-lg font-bold text-text leading-tight pr-10">
+                        {vocab.example.native}
+                    </p>
+                    <button 
+                        onClick={() => speak(vocab.example.native)}
+                        className="absolute bottom-4 right-4 text-primary hover:scale-110 transition-all opacity-0 group-hover/example:opacity-100"
+                    >
+                        <FontAwesomeIcon icon={faVolumeHigh} />
+                    </button>
+                    {vocab.example.english && vocab.example.english !== vocab.example.native && (
+                        <p className="text-xs text-text/40 mt-2 font-medium italic">
+                            {vocab.example.english}
+                        </p>
+                    )}
+                </div>
+            )}
             
             {showBarakhadi && (
                 <div className="w-full bg-background/50 rounded-2xl p-4 grid grid-cols-4 gap-2 mb-6">
@@ -197,7 +222,7 @@ const VocabularyCard = ({ vocab, speak }) => {
     );
 };
 
-const PhoneticCard = ({ tip }) => {
+const PhoneticCard = ({ tip, transLanguage, getTransliteration }) => {
     return (
         <motion.div 
             whileHover={{ y: -5 }}
@@ -226,6 +251,10 @@ const DuolingoLesson = () => {
     const [xpEarned, setXpEarned] = useState(0);
     const [correctionReason, setCorrectionReason] = useState("");
     const [isComplete, setIsComplete] = useState(false);
+    
+    // Localization & Transliteration
+    const [transLanguage, setTransLanguage] = useState('English');
+    const [uiLang, setUiLang] = useState('en');
 
     // Speech Recognition
     const [isListening, setIsListening] = useState(false);
@@ -241,6 +270,13 @@ const DuolingoLesson = () => {
                 console.log("DEBUG: Lesson Data Received:", res.data);
                 setLesson(res.data);
                 setExercises(res.data.exercises || []);
+                
+                // Set default transliteration based on user registration
+                const userLang = res.data.userNativeLanguage || 'English';
+                setTransLanguage(userLang);
+                
+                const langObj = localizationData.languages.find(l => l.name === userLang);
+                if (langObj) setUiLang(langObj.code);
             } catch (err) {
                 console.error("Error fetching lesson", err);
                 const mock = {
@@ -274,8 +310,128 @@ const DuolingoLesson = () => {
 
     const speak = (text) => {
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = lesson?.language === 'Spanish' ? 'es-ES' : 'hi-IN';
+        const lang = lesson?.language;
+        
+        switch(lang) {
+            case 'English': utterance.lang = 'en-US'; break;
+            case 'Spanish': utterance.lang = 'es-ES'; break;
+            case 'Hindi': utterance.lang = 'hi-IN'; break;
+            case 'Marathi': utterance.lang = 'hi-IN'; break; // Fallback to Hindi for Marathi
+            case 'Bengali': utterance.lang = 'bn-IN'; break;
+            case 'Tamil': utterance.lang = 'ta-IN'; break;
+            case 'Telugu': utterance.lang = 'te-IN'; break;
+            case 'Kannada': utterance.lang = 'kn-IN'; break;
+            case 'Malayalam': utterance.lang = 'ml-IN'; break;
+            case 'Punjabi': utterance.lang = 'pa-IN'; break;
+            default: utterance.lang = 'hi-IN';
+        }
+        
         window.speechSynthesis.speak(utterance);
+    };
+
+    const getUIText = (key) => {
+        const entry = localizationData.ui[key];
+        if (!entry) return key;
+        return entry[uiLang] || entry['en'];
+    };
+
+    const getTransliteration = (word, targetLang) => {
+        if (!word) return "";
+        if (targetLang === 'English') return word;
+
+        // Basic phonetic mapping for common English words to Devanagari (Marathi/Hindi)
+        const commonMap = {
+            'hello': { mr: 'हॅलो', hi: 'नमस्ते', kn: 'ಹಲೋ', bn: 'হ্যালো', pa: 'ਹੈਲੋ', ta: 'ஹலோ', te: 'హలో', ml: 'ഹലോ' },
+            'thank you': { mr: 'धन्यवाद', hi: 'शुक्रिया', kn: 'ಧನ್ಯವಾದಗಳು', bn: 'ধন্যবাদ', pa: 'ਧੰਨਵਾਦ', ta: 'நன்றி', te: 'ధన్యవాదాలు', ml: 'നന്ദി' },
+            'please': { mr: 'कृपया', hi: 'कृपया', kn: 'ದಯವಿಟ್ಟು', bn: 'দয়া করে', pa: 'ਕਿਰਪਾ ਕਰਕੇ', ta: 'தயவுசெய்து', te: 'దయచేసి', ml: 'ദയവായി' },
+            'sorry': { mr: 'क्षमस्व', hi: 'माफ़ कीजिए', kn: 'ಕ್ಷಮಿಸಿ', bn: 'দুঃখিত', pa: 'ਮਾਫ ਕਰਨਾ', ta: 'மன்னிக்கவும்', te: 'క్షమించండి', ml: 'ക്ഷമിക്കണം' },
+            'welcome': { mr: 'स्वागत आहे', hi: 'स्वागत है', kn: 'ಸ್ವಾಗತ', bn: 'স্বাগত', pa: 'ਸੁਆਗਤ ਹੈ', ta: 'வரவேற்பு', te: 'స్వాగతం', ml: 'സ്വാഗതം' },
+            'yes': { mr: 'हो', hi: 'हाँ', kn: 'ಹೌದು', bn: 'হ্যাঁ', pa: 'ਹਾਂ', ta: 'ஆம்', te: 'అవును', ml: 'അതെ' },
+            'no': { mr: 'नाही', hi: 'नहीं', kn: 'ಇಲ್ಲ', bn: 'না', pa: 'ਨਹੀਂ', ta: 'இல்லை', te: 'కాదు', ml: 'ഇല്ല' }
+        };
+
+        const lower = word.toLowerCase();
+        const langCode = localizationData.languages.find(l => l.name === targetLang)?.code || 'en';
+        
+        if (commonMap[lower] && commonMap[lower][langCode]) {
+            return commonMap[lower][langCode];
+        }
+
+        const phonemes = {
+            consonants: {
+                'b': { devanagari: 'ब', kannada: 'ಬ', bengali: 'ব', gurmukhi: 'ਬ', tamil: 'ப', telugu: 'బ', malayalam: 'ബ' },
+                'c': { devanagari: 'क', kannada: 'ಕ', bengali: 'ক', gurmukhi: 'ਕ', tamil: 'க', telugu: 'క', malayalam: 'ക' },
+                'd': { devanagari: 'ड', kannada: 'ಡ', bengali: 'ড', gurmukhi: 'ਡ', tamil: 'ட', telugu: 'డ', malayalam: 'ഡ' },
+                'f': { devanagari: 'फ', kannada: 'ಫ', bengali: 'ফ', gurmukhi: 'ਫ', tamil: 'ப', telugu: 'ఫ', malayalam: 'ഫ' },
+                'g': { devanagari: 'ग', kannada: 'ಗ', bengali: 'গ', gurmukhi: 'ਗ', tamil: 'க', telugu: 'గ', malayalam: 'ഗ' },
+                'h': { devanagari: 'ह', kannada: 'ಹ', bengali: 'হ', gurmukhi: 'ਹ', tamil: 'ஹ', telugu: 'హ', malayalam: 'ഹ' },
+                'j': { devanagari: 'ज', kannada: 'ಜ', bengali: 'জ', gurmukhi: 'ਜ', tamil: 'ஜ', telugu: 'జ', malayalam: 'ജ' },
+                'k': { devanagari: 'क', kannada: 'ಕ', bengali: 'ক', gurmukhi: 'ਕ', tamil: 'க', telugu: 'క', malayalam: 'ಕ' },
+                'l': { devanagari: 'ल', kannada: 'ಲ', bengali: 'ল', gurmukhi: 'ਲ', tamil: 'ல', telugu: 'ల', malayalam: 'ల' },
+                'm': { devanagari: 'म', kannada: 'ಮ', bengali: 'ম', gurmukhi: 'ਮ', tamil: 'ம', telugu: 'మ', malayalam: 'മ' },
+                'n': { devanagari: 'न', kannada: 'ನ', bengali: 'ন', gurmukhi: 'ਨ', tamil: 'ந', telugu: 'న', malayalam: 'న' },
+                'p': { devanagari: 'प', kannada: 'ಪ', bengali: 'প', gurmukhi: 'ਪ', tamil: 'ப', telugu: 'ప', malayalam: 'പ' },
+                'q': { devanagari: 'क्य', kannada: 'ಕ್ಯ', bengali: 'ক্য', gurmukhi: 'ਕ੍ਯ', tamil: 'கிய', telugu: 'క్య', malayalam: 'ക്യ' },
+                'r': { devanagari: 'र', kannada: 'ರ', bengali: 'র', gurmukhi: 'ਰ', tamil: 'ர', telugu: 'ర', malayalam: 'ര' },
+                's': { devanagari: 'स', kannada: 'ಸ', bengali: 'স', gurmukhi: 'ਸ', tamil: 'ஸ', telugu: 'స', malayalam: 'സ' },
+                't': { devanagari: 'ट', kannada: 'ಟ', bengali: 'ট', gurmukhi: 'ਟ', tamil: 'ட', telugu: 'ట', malayalam: 'ട' },
+                'v': { devanagari: 'व', kannada: 'ವ', bengali: 'ভ', gurmukhi: 'ਵ', tamil: 'வ', telugu: 'వ', malayalam: 'வ' },
+                'w': { devanagari: 'व', kannada: 'ವ', bengali: 'ভ', gurmukhi: 'ਵ', tamil: 'வ', telugu: 'వ', malayalam: 'வ' },
+                'x': { devanagari: 'क्स', kannada: 'ಕ್ಸ್', bengali: 'ক্স', gurmukhi: 'ਕਸ', tamil: 'க்ஸ்', telugu: 'క్స్', malayalam: 'ക്സ്' },
+                'y': { devanagari: 'य', kannada: 'ಯ', bengali: 'য়', gurmukhi: 'ਯ', tamil: 'ய', telugu: 'య', malayalam: 'യ' },
+                'z': { devanagari: 'झ', kannada: 'ಝ', bengali: 'ঝ', gurmukhi: 'ਜ਼', tamil: 'ஸ', telugu: 'జ', malayalam: 'സ' }
+            },
+            vowels: {
+                'a': { devanagari: 'अ', kannada: 'ಅ', bengali: 'অ', gurmukhi: 'ਅ', tamil: 'அ', telugu: 'అ', malayalam: 'അ' },
+                'e': { devanagari: 'ए', kannada: 'ಎ', bengali: 'এ', gurmukhi: 'ਏ', tamil: 'எ', telugu: 'ఎ', malayalam: 'എ' },
+                'i': { devanagari: 'इ', kannada: 'ಇ', bengali: 'ই', gurmukhi: 'ਇ', tamil: 'இ', telugu: 'ఇ', malayalam: 'ഇ' },
+                'o': { devanagari: 'ओ', kannada: 'ಒ', bengali: 'ও', gurmukhi: 'ਓ', tamil: 'ஒ', telugu: 'ఒ', malayalam: 'ഒ' },
+                'u': { devanagari: 'अ', kannada: 'ಅ', bengali: 'অ', gurmukhi: 'ਅ', tamil: 'அ', telugu: 'అ', malayalam: 'അ' }
+            },
+            clusters: {
+                'sh': { devanagari: 'श', kannada: 'ಶ', bengali: 'শ', gurmukhi: 'ਸ਼', tamil: 'ஷ', telugu: 'శ', malayalam: 'ശ' },
+                'ch': { devanagari: 'च', kannada: 'ಚ', bengali: 'চ', gurmukhi: 'ਚ', tamil: 'ச', telugu: 'చ', malayalam: 'ച' },
+                'th': { devanagari: 'थ', kannada: 'ಥ', bengali: 'থ', gurmukhi: 'ਥ', tamil: 'த', telugu: 'థ', malayalam: 'ഥ' },
+                'ph': { devanagari: 'फ', kannada: 'ಫ', bengali: 'ফ', gurmukhi: 'ਫ', tamil: 'ப', telugu: 'ఫ', malayalam: 'ഫ' },
+                'kh': { devanagari: 'ख', kannada: 'ಖ', bengali: 'খ', gurmukhi: 'ਖ', tamil: 'க', telugu: 'ఖ', malayalam: 'ഖ' }
+            }
+        };
+
+        const scriptMap = {
+            'kn': 'kannada',
+            'bn': 'bengali',
+            'pa': 'gurmukhi',
+            'ta': 'tamil',
+            'te': 'telugu',
+            'ml': 'malayalam'
+        };
+        const scriptType = scriptMap[langCode] || 'devanagari';
+        let result = "";
+        let i = 0;
+
+        while (i < lower.length) {
+            let found = false;
+            if (i + 1 < lower.length) {
+                const cluster = lower.substring(i, i + 2);
+                if (phonemes.clusters[cluster]) {
+                    result += phonemes.clusters[cluster][scriptType];
+                    i += 2;
+                    found = true;
+                }
+            }
+            if (!found) {
+                const char = lower[i];
+                if (phonemes.consonants[char]) {
+                    result += phonemes.consonants[char][scriptType];
+                } else if (phonemes.vowels[char]) {
+                    result += phonemes.vowels[char][scriptType];
+                } else {
+                    result += char;
+                }
+                i++;
+            }
+        }
+        return result || word;
     };
 
     const handleSpeech = () => {
@@ -298,11 +454,22 @@ const DuolingoLesson = () => {
         
         // Robust normalization helper
         const normalize = (val) => {
+            const digitMap = {
+                '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+                '५': '5', '६': '6', '७': '7', '८': '8', '९': '9'
+            };
+
+            const convertDigits = (str) => {
+                return str.split('').map(char => digitMap[char] || char).join('');
+            };
+
             if (Array.isArray(val)) {
                 // For rearrange: join with single space and treat as a sentence
                 return val.map(v => String(v || "").trim()).filter(v => v !== "").join(' ').toLowerCase().normalize('NFC');
             }
-            return String(val || "").trim().toLowerCase().normalize('NFC');
+            
+            const normalized = String(val || "").trim().toLowerCase().normalize('NFC');
+            return convertDigits(normalized);
         };
 
         const userAns = normalize(answer);
@@ -329,8 +496,8 @@ const DuolingoLesson = () => {
                     reason = "Keep going! Some words are missing.";
                 } else if (userWords.length === correctWords.length) {
                     // Check if it's just the order
-                    const sortedUser = [...userWords].sort();
-                    const sortedCorrect = [...correctWords].sort();
+                    const sortedUser = [...userWords].sort((a, b) => a.localeCompare(b));
+                    const sortedCorrect = [...correctWords].sort((a, b) => a.localeCompare(b));
                     const sameWords = JSON.stringify(sortedUser) === JSON.stringify(sortedCorrect);
                     reason = sameWords ? "Almost! The words are right, but the order is wrong." : "Double check your word choices.";
                 } else {
@@ -432,7 +599,7 @@ const DuolingoLesson = () => {
         return (
             <div className="max-w-md mx-auto p-8 text-center space-y-8 h-screen flex flex-col justify-center">
                 <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-8xl">🎉</motion.div>
-                <h1 className="text-4xl font-black text-text">Lesson Complete!</h1>
+                <h1 className="text-4xl font-black text-text">{getUIText('checkpoint-reached')}</h1>
                 <div className="flex justify-center gap-8">
                     <div className="bg-yellow-100 p-4 rounded-2xl w-32 border border-yellow-200">
                         <FontAwesomeIcon icon={faStar} className="text-yellow-500 text-2xl mb-2" />
@@ -482,8 +649,18 @@ const DuolingoLesson = () => {
 
     return (
         <div className="max-w-4xl mx-auto h-screen flex flex-col p-4 md:p-8">
-            {/* Header / Progress */}
-            <header className="flex items-center gap-6 mb-12">
+            {/* Header / Progress */}            <div className="flex flex-col gap-2 mb-8">
+                <div className="flex justify-between items-center px-2">
+                    <div className="flex items-center gap-3">
+                        <span className="px-2 py-0.5 bg-primary/10 text-primary rounded-lg text-[10px] font-black uppercase tracking-tighter shadow-sm border border-primary/5">
+                            {lesson?.level || 'Beginner'}
+                        </span>
+                        <h1 className="text-sm font-bold text-text/40 tracking-tight uppercase">
+                            {lesson?.title}
+                        </h1>
+                    </div>
+                </div>
+                <header className="flex items-center gap-6">
                 <button onClick={() => navigate('/learning')} className="text-text/40 hover:text-text transition p-2 hover:bg-text/5 rounded-xl">
                     <FontAwesomeIcon icon={faXmark} className="text-2xl" />
                 </button>
@@ -495,6 +672,29 @@ const DuolingoLesson = () => {
                     />
                 </div>
                 <div className="flex items-center gap-3">
+                    {lesson?.language === 'English' && (
+                        <div className="relative group">
+                            <button className="px-4 py-2 rounded-xl bg-surface border border-text/10 flex items-center gap-2 hover:bg-text/5 transition shadow-sm font-bold text-sm text-text/60">
+                                <FontAwesomeIcon icon={faLanguage} className="text-primary" />
+                                <span>{transLanguage}</span>
+                                <FontAwesomeIcon icon={faCaretDown} />
+                            </button>
+                            <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-2xl border border-text/10 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
+                                {localizationData.languages.map(lang => (
+                                    <button 
+                                        key={lang.code}
+                                        onClick={() => {
+                                            setTransLanguage(lang.name);
+                                            setUiLang(lang.code);
+                                        }}
+                                        className={`w-full text-left px-5 py-3 text-sm font-bold border-b border-text/5 last:border-0 hover:bg-primary/5 transition ${transLanguage === lang.name ? 'text-primary' : 'text-text/60'}`}
+                                    >
+                                        {lang.native}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <button 
                         onClick={refreshLesson}
                         className="px-4 py-2 rounded-xl bg-orange-500 text-white flex items-center gap-2 hover:bg-orange-600 transition shadow-lg font-black text-sm"
@@ -508,6 +708,7 @@ const DuolingoLesson = () => {
                     </div>
                 </div>
             </header>
+            </div>
 
             {/* Main Content Area */}
             <main className="flex-grow flex flex-col">
@@ -520,8 +721,8 @@ const DuolingoLesson = () => {
                             exit={{ opacity: 0, x: -20 }}
                             className="space-y-8"
                         >
-                            <h2 className="text-4xl font-black text-text mb-2">New Vocabulary</h2>
-                            <p className="text-text/40 font-bold mb-10 uppercase tracking-[0.2em] text-sm">Essential words and greetings</p>
+                            <h2 className="text-4xl font-black text-text mb-2">{lesson?.title || "New Vocabulary"}</h2>
+                            <p className="text-text/40 font-bold mb-10 uppercase tracking-[0.2em] text-sm">{lesson?.language} {lesson?.level} Section</p>
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                                 {lesson.vocabulary.map((vocab, i) => (
@@ -529,6 +730,8 @@ const DuolingoLesson = () => {
                                         key={i} 
                                         vocab={vocab} 
                                         speak={speak} 
+                                        transLanguage={transLanguage}
+                                        getTransliteration={getTransliteration}
                                     />
                                 ))}
                             </div>
@@ -548,6 +751,8 @@ const DuolingoLesson = () => {
                                                 <PhoneticCard 
                                                     key={i} 
                                                     tip={tip} 
+                                                    transLanguage={transLanguage}
+                                                    getTransliteration={getTransliteration}
                                                 />
                                             ))}
                                         </div>
@@ -563,28 +768,48 @@ const DuolingoLesson = () => {
                             exit={{ opacity: 0, x: -20 }}
                             className="space-y-8"
                         >
-                            <h2 className="text-2xl font-black text-text opacity-40 uppercase tracking-widest">{currentExercise.type.replace('-', ' ')}</h2>
+                            <h2 className="text-2xl font-black text-text opacity-40 uppercase tracking-widest">{getUIText(currentExercise.type + '-instruction') || currentExercise.type.replace('-', ' ')}</h2>
                             
                             <div className="flex flex-col md:flex-row gap-8 items-center bg-surface/50 p-12 rounded-[3.5rem] border-2 border-text/5 justify-center text-center shadow-xl overflow-visible">
                                 {(currentExercise.nativeFigure || currentExercise.nativeWord) ? (
                                     <div className="flex flex-col items-center gap-6 w-full max-w-2xl px-4">
                                         {/* Exercise Figure Box - Only show if figure is the prompt */}
                                         {currentExercise.nativeFigure && (
-                                            <div className="bg-primary/5 px-10 py-5 rounded-[2.5rem] ring-4 ring-primary/10 shadow-inner border border-primary/10 mb-2 min-w-fit max-w-full overflow-visible">
-                                                <span className={`font-black text-primary/40 leading-none whitespace-nowrap
-                                                    ${(currentExercise.nativeFigure || "").length > 8 ? 'text-3xl' : 'text-6xl'}
-                                                `}>
-                                                    {currentExercise.nativeFigure}
-                                                </span>
+                                            <div className="flex items-center gap-4">
+                                                <div className="bg-primary/5 px-10 py-5 rounded-[2.5rem] ring-4 ring-primary/10 shadow-inner border border-primary/10 mb-2 min-w-fit max-w-full overflow-visible">
+                                                    <span className={`font-black text-primary leading-none whitespace-nowrap
+                                                        ${(currentExercise.nativeFigure || "").length > 8 ? 'text-3xl' : 'text-6xl'}
+                                                    `}>
+                                                        {currentExercise.nativeFigure}
+                                                    </span>
+                                                </div>
+                                                {lesson.language === 'English' && (
+                                                    <button 
+                                                        onClick={() => speak(currentExercise.nativeFigure)}
+                                                        className="w-12 h-12 bg-primary text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-lg"
+                                                    >
+                                                        <FontAwesomeIcon icon={faVolumeHigh} />
+                                                    </button>
+                                                )}
                                             </div>
                                         )}
 
                                         {/* Exercise Word Box - Only show if word is the prompt */}
                                         {currentExercise.nativeWord && (
-                                            <div className="w-full bg-primary/5 rounded-[2.5rem] p-8 border border-primary/10 flex items-center justify-center min-h-[120px] px-6">
-                                                <p className="font-black text-primary tracking-tight leading-tight uppercase text-5xl">
-                                                    {currentExercise.nativeWord}
-                                                </p>
+                                            <div className="flex items-center gap-4 w-full justify-center">
+                                                <div className="bg-primary/5 rounded-[2.5rem] p-8 border border-primary/10 flex items-center justify-center min-h-[120px] px-6 flex-grow max-w-xl">
+                                                    <p className="font-black text-primary tracking-tight leading-tight uppercase text-5xl">
+                                                        {currentExercise.nativeWord}
+                                                    </p>
+                                                </div>
+                                                {lesson.language === 'English' && (
+                                                    <button 
+                                                        onClick={() => speak(currentExercise.nativeWord)}
+                                                        className="w-16 h-16 bg-primary text-white rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-lg text-2xl"
+                                                    >
+                                                        <FontAwesomeIcon icon={faVolumeHigh} />
+                                                    </button>
+                                                )}
                                             </div>
                                         )}
 
@@ -621,14 +846,17 @@ const DuolingoLesson = () => {
                                                 className="w-full bg-surface p-6 rounded-2xl border-2 border-primary/20 text-3xl font-bold text-center focus:border-primary focus:outline-none transition-all"
                                                 autoFocus
                                             />
-                                            <p className="text-center text-text opacity-40 font-bold uppercase tracking-widest text-sm">Type in {lesson.language}</p>
+                                            <p className="text-center text-text opacity-40 font-bold uppercase tracking-widest text-sm">{getUIText('fill-blank-instruction')} in {lesson.language}</p>
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             {currentExercise.options.map((option, i) => (
                                                 <button
                                                     key={i}
-                                                    onClick={() => setSelectedOption(option)}
+                                                    onClick={() => {
+                                                        setSelectedOption(option);
+                                                        if (lesson.language === 'English') speak(option);
+                                                    }}
                                                     disabled={showCorrection}
                                                     className={`p-6 rounded-3xl border-2 text-xl font-bold transition-all text-left flex items-center gap-4 ${
                                                         selectedOption === option 
@@ -687,7 +915,10 @@ const DuolingoLesson = () => {
                                                         <button 
                                                             key={i} 
                                                             disabled={isUsed || (showCorrection && isCorrect)}
-                                                            onClick={() => setSelectedRearrange(prev => [...prev, word])}
+                                                            onClick={() => {
+                                                                setSelectedRearrange(prev => [...prev, word]);
+                                                                if (lesson.language === 'English') speak(word);
+                                                            }}
                                                             className={`px-8 py-4 rounded-2xl border-2 font-bold text-2xl transition-all shadow-sm active:scale-95 ${
                                                                 isUsed 
                                                                     ? 'bg-text/5 border-transparent text-transparent pointer-events-none select-none' 
@@ -727,6 +958,7 @@ const DuolingoLesson = () => {
                                                     // If nothing selected, select this
                                                     if (!selected) {
                                                         setSelectedOption(JSON.stringify({ item, side }));
+                                                        if (lesson.language === 'English') speak(item);
                                                         return;
                                                     }
 
@@ -849,7 +1081,7 @@ const DuolingoLesson = () => {
                             </div>
                             <div className="space-y-1">
                                 <h4 className={`text-3xl font-black ${isCorrect ? 'text-green-700' : 'text-red-700'}`}>
-                                    {isCorrect ? 'Great Job!' : 'Incorrect'}
+                                    {isCorrect ? (uiLang === 'mr' ? 'छान!' : uiLang === 'hi' ? 'बहुत बढ़िया!' : 'Great Job!') : (uiLang === 'mr' ? 'चुकीचे' : uiLang === 'hi' ? 'गलत' : 'Incorrect')}
                                 </h4>
                                 <p className={`text-lg font-bold ${isCorrect ? 'text-green-600' : 'text-red-600'} opacity-90 italic`}>
                                     {correctionReason}
@@ -876,7 +1108,7 @@ const DuolingoLesson = () => {
                                 onClick={tryAgain}
                                 className="flex-1 md:flex-none px-12 py-6 rounded-3xl font-black text-2xl bg-white text-red-500 border-2 border-red-200 hover:bg-red-50 shadow-xl transition active:scale-95"
                             >
-                                TRY AGAIN
+                                {uiLang === 'mr' ? 'पुन्हा प्रयत्न करा' : uiLang === 'hi' ? 'फिर से कोशिश करें' : 'TRY AGAIN'}
                             </button>
                         )}
                         <button 
@@ -888,7 +1120,7 @@ const DuolingoLesson = () => {
                                     : (selectedOption || selectedRearrange.length > 0 || typedAnswer || currentIndex === 0 ? 'bg-primary text-white shadow-primary/20 hover:-translate-y-1' : 'bg-text/5 text-text/20 cursor-not-allowed')
                             }`}
                         >
-                            {showCorrection ? 'CONTINUE' : (currentIndex === 0 ? 'START' : 'CHECK')}
+                            {showCorrection ? (uiLang === 'mr' ? 'पुढे' : uiLang === 'hi' ? 'जारी रखें' : 'CONTINUE') : (currentIndex === 0 ? (uiLang === 'mr' ? 'सुरू करा' : uiLang === 'hi' ? 'शुरू करें' : 'START') : (uiLang === 'mr' ? 'तपासा' : uiLang === 'hi' ? 'जांचें' : 'CHECK'))}
                         </button>
                     </div>
                 </div>

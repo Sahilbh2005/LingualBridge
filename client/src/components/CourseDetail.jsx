@@ -146,7 +146,7 @@ const CourseDetail = () => {
                             <div key={sIdx} className="space-y-4">
                                 <div className="flex items-center gap-4 px-2">
                                     <div className="h-px flex-grow bg-text opacity-10"></div>
-                                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary opacity-70">
+                                    <h3 className="text-base font-black uppercase tracking-[0.2em] text-primary">
                                         {section.title} Level
                                     </h3>
                                     <div className="h-px flex-grow bg-text opacity-10"></div>

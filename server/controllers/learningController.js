@@ -3,7 +3,10 @@ const User = require('../models/User');
 const Lesson = require('../models/Lesson');
 const mongoose = require('mongoose');
 const curriculumData = require('../data/curriculumData');
+const regionalCurriculum = require('../data/regionalCurriculum');
+const internationalCurriculum = require('../data/internationalCurriculum');
 const imageService = require('../services/imageService');
+const Vocabulary = require('../models/Vocabulary');
 
 // @desc    Generate a dynamic lesson via AI
 // @route   POST /api/learning/generate-lesson
@@ -11,6 +14,9 @@ exports.generateLesson = async (req, res) => {
     const { language, level, chapterTitle, chapterId } = req.body;
     try {
         if (!chapterId) return res.status(400).json({ msg: 'chapterId is required' });
+
+        const user = await User.findById(req.user.id);
+        const userNativeLanguage = user ? (user.nativeLanguage || 'English') : 'English';
 
         // Delete existing lesson for this chapter to force refresh with new logic
         await Lesson.deleteMany({ chapterId });
@@ -22,6 +28,18 @@ exports.generateLesson = async (req, res) => {
         // Ultra-robust case-insensitive lookup for language
         const lookupLang = (langName) => {
             if (!langName) return null;
+
+            // 1. Check International Curriculum First
+            if (internationalCurriculum) {
+                const intKeys = Object.keys(internationalCurriculum);
+                const intExact = intKeys.find(k => k === langName);
+                if (intExact) return internationalCurriculum[intExact];
+                const intCi = intKeys.find(k => k.toLowerCase() === langName.toLowerCase());
+                if (intCi) return internationalCurriculum[intCi];
+                const intLoose = intKeys.find(k => langName.includes(k) || k.includes(langName));
+                if (intLoose) return internationalCurriculum[intLoose];
+            }
+
             const keys = Object.keys(curriculumData.contentMap);
             // Try exact match
             if (curriculumData.contentMap[langName]) return curriculumData.contentMap[langName];
@@ -34,66 +52,124 @@ exports.generateLesson = async (req, res) => {
             return null;
         };
 
-        const langData = lookupLang(language) || {};
-        let themeContent = langData[themeId] || {};
+        // HYBRID ARCHITECTURE: Try DB first, then Fallback to File
+        let vocabulary = [];
+        let phonetics = [];
+        let themeContent = {};
 
-        // SPECIAL CASE: Dynamically generate Barakhadi if not explicitly defined
-        if (themeId === 'barakhadi' && (!themeContent.vocabulary || themeContent.vocabulary.length === 0)) {
-            const alphabetData = langData['alphabet'] || {};
-            const consonants = (alphabetData.vocabulary || [])
-                .filter(v => v.meaning && v.meaning.toLowerCase().includes('consonant'))
-                .map(v => v.word);
+        // 1. Attempt DB Fetch
+        try {
+            // Find just matching docs for this language + section (themeId)
+            const dbVocab = await Vocabulary.find({
+                language: new RegExp(language, 'i'),
+                category: themeId
+            }).sort({ order: 1 });
 
-            const matras = (curriculumData.matras && curriculumData.matras[language]) ? curriculumData.matras[language] : (curriculumData.matras['Marathi'] || []);
+            if (dbVocab && dbVocab.length > 0) {
+                console.log(`SCALABILITY: Loaded ${dbVocab.length} words from MongoDB for ${language}/${themeId}`);
+                vocabulary = dbVocab;
+            }
+        } catch (dbErr) {
+            console.error("DB Vocabulary Fetch Error", dbErr);
+        }
 
-            if (consonants.length > 0) {
-                const barakhadiVocab = [];
-                // Pick 5 random consonants to keep the lesson manageable
-                const selectedConsonants = consonants.sort(() => 0.5 - Math.random()).slice(0, 5);
+        // 2. Fallback to File-based system if DB empty
+        if (vocabulary.length === 0) {
+            const langData = lookupLang(language) || {};
+            themeContent = langData[themeId] || {};
 
-                selectedConsonants.forEach(c => {
-                    matras.forEach(m => {
-                        barakhadiVocab.push({
-                            word: c + m.symbol,
-                            transliteration: (c === 'क' ? 'k' : (c === 'ख' ? 'kh' : (c === 'ग' ? 'g' : ''))) + m.transliteration, // Simple fallback transliteration logic
-                            meaning: `Combination: ${c} + ${m.vowel}`,
-                            pronunciation: `Sound of ${c}${m.symbol}`,
-                            imagePrompt: `Writing ${c}${m.symbol}`
+            // Barakhadi logic (preserved from original)
+            if (themeId === 'barakhadi' && (!themeContent.vocabulary || themeContent.vocabulary.length === 0)) {
+                // ... (Barakhadi logic remains same, abstracted if needed) ...
+                const alphabetData = langData['alphabet'] || {};
+                const consonants = (alphabetData.vocabulary || [])
+                    .filter(v => v.meaning && v.meaning.toLowerCase().includes('consonant'))
+                    .map(v => v.word);
+
+                const matras = (curriculumData.matras && curriculumData.matras[language]) ? curriculumData.matras[language] : (curriculumData.matras['Marathi'] || []);
+
+                if (consonants.length > 0) {
+                    const barakhadiVocab = [];
+                    const selectedConsonants = consonants.sort(() => 0.5 - Math.random()).slice(0, 5);
+
+                    selectedConsonants.forEach(c => {
+                        matras.forEach(m => {
+                            barakhadiVocab.push({
+                                word: c + m.symbol,
+                                transliteration: (c === 'क' ? 'k' : (c === 'ख' ? 'kh' : (c === 'ग' ? 'g' : ''))) + m.transliteration,
+                                meaning: `Combination: ${c} + ${m.vowel}`,
+                                pronunciation: `Sound of ${c}${m.symbol}`,
+                                imagePrompt: `Writing ${c}${m.symbol}`
+                            });
                         });
                     });
+                    vocabulary = barakhadiVocab; // Direct assign here for barakhadi fallback
+                }
+            } else {
+                vocabulary = (themeContent.vocabulary && themeContent.vocabulary.length > 0) ? themeContent.vocabulary : [];
+                phonetics = themeContent.phonetics || [];
+            }
+
+            // APPLY REGIONAL OVERRIDES (for Bengali, Tamil, etc. to replace Marathi clones)
+            if (regionalCurriculum[language]) {
+                const langOverrides = regionalCurriculum[language];
+                const sectionOverrides = langOverrides[themeId] || {};
+                const figureOverrides = langOverrides['figures'] || {};
+
+                vocabulary = vocabulary.map(v => {
+                    const word = v.word || v.wordNative;
+                    const figure = v.nativeFigure;
+                    let updated = { ...v };
+
+                    if (sectionOverrides[word]) {
+                        updated.word = sectionOverrides[word];
+                        updated.wordNative = sectionOverrides[word];
+                    }
+                    if (figure && figureOverrides[figure]) {
+                        updated.nativeFigure = figureOverrides[figure];
+                    }
+                    return updated;
                 });
-                themeContent = { vocabulary: barakhadiVocab };
+            } else if (internationalCurriculum && Object.keys(internationalCurriculum).some(k => k.toLowerCase() === language.toLowerCase() || language.toLowerCase().includes(k.toLowerCase()))) {
+                // For International Languages, translate English meanings to the user's native language if not English
+                if (userNativeLanguage !== 'English') {
+                    // We map English -> Marathi -> Native Language
+                    const marathiData = curriculumData.contentMap['Marathi']?.[themeId]?.vocabulary || [];
+                    const engToMarathiMap = {};
+                    marathiData.forEach(mv => {
+                        if (mv.meaning) engToMarathiMap[mv.meaning.toLowerCase().trim()] = mv.word;
+                    });
+
+                    let targetOverrides = {};
+                    if (userNativeLanguage !== 'Marathi' && regionalCurriculum[userNativeLanguage]) {
+                        targetOverrides = regionalCurriculum[userNativeLanguage][themeId] || {};
+                    }
+
+                    vocabulary = vocabulary.map(v => {
+                        let updated = { ...v };
+                        if (v.meaning) {
+                            const engMeaning = v.meaning.toLowerCase().trim();
+                            const marathiWord = engToMarathiMap[engMeaning];
+                            if (marathiWord) {
+                                if (userNativeLanguage === 'Marathi') {
+                                    updated.meaning = marathiWord;
+                                } else if (targetOverrides[marathiWord]) {
+                                    updated.meaning = targetOverrides[marathiWord];
+                                }
+                            }
+                        }
+                        return updated;
+                    });
+                }
             }
         }
 
-        const phonetics = themeContent.phonetics || [];
-
-        if (!themeContent.vocabulary || themeContent.vocabulary.length === 0) {
-            console.log(`WARNING: No vocabulary found for "${language}"/"${themeId}". Available themes for this language:`, Object.keys(langData));
+        if (vocabulary.length === 0) {
+            console.log(`WARNING: No vocabulary found for "${language}"/"${themeId}". using minimal fallback.`);
+            vocabulary = fallbackVocab;
         }
 
-        // Fallback vocabulary with multiple items to ensure distractors exist
-        const fallbackVocab = [
-            {
-                word: language.includes('Marathi') ? 'नमस्कार' : (language.includes('Hindi') ? 'नमस्ते' : 'Hello'),
-                meaning: 'Hello',
-                transliteration: language.includes('Marathi') ? 'Namaskar' : (language.includes('Hindi') ? 'Namaste' : 'Hello'),
-                pronunciationHint: 'Greeting',
-                imagePrompt: `Greeting in ${language}`,
-                example: { native: language.includes('Marathi') ? 'नमस्कार!' : 'Hello!', english: 'Hello!' }
-            },
-            {
-                word: language.includes('Marathi') ? 'धन्यवाद' : (language.includes('Hindi') ? 'धन्यवाद' : 'Thank you'),
-                meaning: 'Thank you',
-                transliteration: 'Dhanyavad',
-                pronunciationHint: 'Gratitude',
-                imagePrompt: `Thank you in ${language}`,
-                example: { native: language.includes('Marathi') ? 'धन्यवाद!' : 'Thanks!', english: 'Thanks!' }
-            }
-        ];
-
-        const vocabulary = (themeContent.vocabulary && themeContent.vocabulary.length > 0) ? themeContent.vocabulary : fallbackVocab;
-        console.log(`DEBUG: Using vocabulary with ${vocabulary.length} items for ${language}`);
+        console.log(`DEBUG: Final vocabulary size: ${vocabulary.length} items for ${language}`);
 
         // Shuffle vocabulary to get different words/letters in exercises each time
         const shuffledVocab = [...vocabulary].sort(() => 0.5 - Math.random());
@@ -158,6 +234,33 @@ exports.generateLesson = async (req, res) => {
                     }
                 }
             });
+
+            // Add Number-specific Match Pairs (Figure <-> Word)
+            if (shuffledVocab.length >= 4) {
+                const pairs = [];
+                const usedLeft = new Set();
+                const usedRight = new Set();
+
+                for (const v of shuffledVocab) {
+                    const left = String(v.nativeFigure || "").trim();
+                    const right = String(v.word || "").trim();
+
+                    if (left && right && !usedLeft.has(left) && !usedRight.has(right)) {
+                        pairs.push({ left, right });
+                        usedLeft.add(left);
+                        usedRight.add(right);
+                    }
+                    if (pairs.length === 4) break;
+                }
+
+                if (pairs.length >= 2) {
+                    exercises.push({
+                        type: 'match-pair',
+                        question: 'Match the figure with the word',
+                        pairs: pairs
+                    });
+                }
+            }
         } else {
             // 1. Multiple Choice (Vocabulary)
             // 1. Multiple Choice (Vocabulary)
@@ -204,16 +307,29 @@ exports.generateLesson = async (req, res) => {
 
             // 2. Match Pairs Exercise (New)
             if (shuffledVocab.length >= 4) {
-                const pairs = shuffledVocab.slice(0, 4).map(v => ({
-                    left: v.word,
-                    right: v.meaning
-                }));
+                const pairs = [];
+                const usedLeft = new Set();
+                const usedRight = new Set();
 
-                exercises.push({
-                    type: 'match-pair',
-                    question: 'Match the pairs',
-                    pairs: pairs
-                });
+                for (const v of shuffledVocab) {
+                    const left = String(v.word || "").trim();
+                    const right = String(v.meaning || "").trim();
+
+                    if (!usedLeft.has(left) && !usedRight.has(right)) {
+                        pairs.push({ left, right });
+                        usedLeft.add(left);
+                        usedRight.add(right);
+                    }
+                    if (pairs.length === 4) break;
+                }
+
+                if (pairs.length >= 2) {
+                    exercises.push({
+                        type: 'match-pair',
+                        question: 'Match the pairs',
+                        pairs: pairs
+                    });
+                }
             }
 
             // 2. Listening Practice
@@ -329,7 +445,10 @@ exports.generateLesson = async (req, res) => {
         });
 
         await newLesson.save();
-        res.json(newLesson);
+        res.json({
+            ...newLesson.toObject(),
+            userNativeLanguage: userNativeLanguage
+        });
     } catch (err) {
         console.error("DEBUG: Lesson Generation Error:", err);
         res.status(500).send('Server Error');
@@ -341,7 +460,11 @@ exports.getLessonById = async (req, res) => {
     try {
         const lesson = await Lesson.findById(req.params.id);
         if (!lesson) return res.status(404).json({ msg: 'Lesson not found' });
-        res.json(lesson);
+        const user = await User.findById(req.user.id);
+        res.json({
+            ...lesson.toObject(),
+            userNativeLanguage: user.nativeLanguage || 'English'
+        });
     } catch (err) {
         res.status(500).send('Server Error');
     }
@@ -434,45 +557,87 @@ exports.submitAnswer = async (req, res) => {
 };
 
 // Internal helper to get structured courses (seeds if empty)
+const Language = require('../models/Language');
+const SectionTemplate = require('../models/SectionTemplate');
+
+const findCourse = (courses, identifier) => {
+    if (!identifier) return null;
+    const id = identifier.toString().toLowerCase();
+    return courses.find(c =>
+        c._id.toString() === identifier ||
+        (c.code && c.code.toLowerCase() === id) ||
+        (c.language && c.language.toLowerCase() === id)
+    );
+};
+
 const getRawCourses = async () => {
     let courses = await Course.find().sort({ orderIndex: 1 });
 
-    // Force re-seed if courses don't have the 9-section structure
+    // Check if we have languages in DB, if so, prefer DB-driven course generation
+    const dbLanguages = await Language.find({ enabled: true }).sort({ order: 1 });
+    const dbSections = await SectionTemplate.find({ enabled: true }).sort({ order: 1 });
+
+    const useDbForSeeding = dbLanguages.length > 0 && dbSections.length > 0;
+
+    // Force re-seed if courses don't have the current structure OR if we switched to DB mode
+    // (Simplification: just checking length for now, but ideally we check version)
     const needsReseed = courses.length === 0 ||
         !courses[0].sections ||
         courses[0].sections.length < 1 ||
-        courses[0].sections[0].chapters.length < 9;
+        (useDbForSeeding && courses[0].sections[0].chapters.length !== dbSections.length);
 
     if (needsReseed) {
-        console.log('🔄 Re-seeding Duolingo-style curriculum (9-section update)...');
-        const languages = [
-            { title: 'English', code: 'EN' }, { title: 'Hindi', code: 'HI' },
-            { title: 'Marathi', code: 'MR' }, { title: 'Tulu', code: 'TU' },
-            { title: 'Gujarati', code: 'GU' }, { title: 'Punjabi', code: 'PA' },
-            { title: 'Kannada', code: 'KN' }, { title: 'Telugu', code: 'TE' },
-            { title: 'Tamil', code: 'TA' }, { title: 'Malayalam', code: 'ML' },
-            { title: 'Bengali', code: 'BN' }, { title: 'Assamese', code: 'AS' },
-            { title: 'Odia', code: 'OR' }, { title: 'Urdu', code: 'UR' },
-            { title: 'Sanskrit', code: 'SA' }, { title: 'Nepali', code: 'NE' },
-            { title: 'Konkani', code: 'KO' }, { title: 'French', code: 'FR' },
-            { title: 'German', code: 'DE' }, { title: 'Spanish', code: 'ES' },
-            { title: 'Italian', code: 'IT' }, { title: 'Portuguese', code: 'PT' },
-            { title: 'Russian', code: 'RU' }, { title: 'Japanese', code: 'JA' },
-            { title: 'Korean', code: 'KO-KR' }, { title: 'Chinese (Mandarin)', code: 'ZH' },
-            { title: 'Arabic', code: 'AR' }
-        ];
+        console.log('🔄 Re-seeding Duolingo-style curriculum (Dynamic DB update)...');
 
-        const mockCourses = languages.map((lang, index) => {
+        let languagesToSeed = [];
+        let sectionsToSeed = [];
+
+        if (useDbForSeeding) {
+            languagesToSeed = dbLanguages.map(l => ({ title: l.name, code: l.code }));
+            sectionsToSeed = dbSections.map(s => ({ id: s.templateId, title: s.title }));
+        } else {
+            // FALLBACK: Hardcoded list if DB is empty
+            languagesToSeed = [
+                { title: 'Marathi', code: 'MR' },
+                { title: 'Hindi', code: 'HI' },
+                { title: 'Bengali', code: 'BN' },
+                { title: 'Punjabi', code: 'PA' },
+                { title: 'Tamil', code: 'TA' },
+                { title: 'Telugu', code: 'TE' },
+                { title: 'Malayalam', code: 'ML' },
+                { title: 'Kannada', code: 'KN' },
+                { title: 'English', code: 'EN' },
+                { title: 'Tulu', code: 'TU' },
+                { title: 'Gujarati', code: 'GU' },
+                { title: 'Assamese', code: 'AS' },
+                { title: 'Odia', code: 'OR' },
+                { title: 'Urdu', code: 'UR' },
+                { title: 'Sanskrit', code: 'SA' },
+                { title: 'Nepali', code: 'NE' },
+                { title: 'Konkani', code: 'KO' },
+                { title: 'French', code: 'FR' },
+                { title: 'German', code: 'DE' },
+                { title: 'Spanish', code: 'ES' },
+                { title: 'Italian', code: 'IT' },
+                { title: 'Portuguese', code: 'PT' },
+                { title: 'Russian', code: 'RU' },
+                { title: 'Japanese', code: 'JA' },
+                { title: 'Korean', code: 'KO-KR' },
+                { title: 'Chinese (Mandarin)', code: 'ZH' },
+                { title: 'Arabic', code: 'AR' }
+            ];
+            sectionsToSeed = curriculumData.sections || [
+                { id: 'greetings', title: 'Greetings & Basics' },
+                { id: 'alphabet', title: 'Alphabet & Phonics' },
+                { id: 'barakhadi', title: 'Barakhadi (Combinations)' },
+                { id: 'numbers', title: 'Numbers (1 - 1M)' },
+                { id: 'family', title: 'Family & Relations' }
+            ];
+        }
+
+        const mockCourses = languagesToSeed.map((lang, index) => {
             const generateChapters = () => {
-                const defaultSections = [
-                    { id: 'greetings', title: 'Greetings & Basics' },
-                    { id: 'alphabet', title: 'Alphabet & Phonics' },
-                    { id: 'barakhadi', title: 'Barakhadi (Combinations)' },
-                    { id: 'numbers', title: 'Numbers (1 - 1M)' },
-                    { id: 'family', title: 'Family & Relations' }
-                ];
-
-                return (curriculumData.sections || defaultSections).map((sec, i) => ({
+                return sectionsToSeed.map((sec, i) => ({
                     chapterId: `${lang.code.toLowerCase()}_${sec.id}`,
                     title: sec.title,
                     lessons: [],
@@ -483,6 +648,7 @@ const getRawCourses = async () => {
             return {
                 title: `${lang.title} Mastery`,
                 language: lang.title,
+                code: lang.code,
                 level: 'Beginner',
                 description: `A comprehensive journey from ${lang.title} basics to full fluency.`,
                 orderIndex: index,
@@ -505,7 +671,16 @@ exports.getCourses = async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
         const courses = await getRawCourses();
-        const coursesWithProgress = courses.map(course => {
+
+        // Filter out English course if user's native language is English
+        const filteredCourses = courses.filter(course => {
+            if (user.nativeLanguage === 'English' && course.language === 'English') {
+                return false;
+            }
+            return true;
+        });
+
+        const coursesWithProgress = filteredCourses.map(course => {
             const enrollment = user.enrolledCourses.find(ec => ec.courseId && ec.courseId.toString() === course._id.toString());
             if (!enrollment) { // Handle non-enrolled courses
                 return {
@@ -536,9 +711,11 @@ exports.getCourseById = async (req, res) => {
         const user = await User.findById(req.user.id);
         const courseId = req.params.courseId;
         const courses = await getRawCourses();
-        const course = courses.find(c => c._id.toString() === courseId);
+        const course = findCourse(courses, courseId);
+
         if (!course) return res.status(404).json({ msg: 'Course not found' });
-        const enrollment = user.enrolledCourses.find(ec => ec.courseId && ec.courseId.toString() === courseId);
+
+        const enrollment = user.enrolledCourses.find(ec => ec.courseId && ec.courseId.toString() === course._id.toString());
         res.json({
             ...(course._doc || course.toObject()),
             isEnrolled: !!enrollment,
@@ -553,8 +730,16 @@ exports.getCourseById = async (req, res) => {
 // @desc    Enroll in a course
 exports.enrollCourse = async (req, res) => {
     try {
-        const courseId = req.params.courseId;
+        const courseIdentifier = req.params.courseId;
         const user = await User.findById(req.user.id);
+
+        // Resolve course ID first
+        const courses = await getRawCourses();
+        const course = findCourse(courses, courseIdentifier);
+        if (!course) return res.status(404).json({ msg: 'Course not found' });
+
+        const courseId = course._id.toString();
+
         const isEnrolled = user.enrolledCourses.some(ec => ec.courseId && ec.courseId.toString() === courseId);
         if (isEnrolled) return res.status(200).json({ msg: 'Already enrolled' });
 
@@ -564,21 +749,28 @@ exports.enrollCourse = async (req, res) => {
         await user.save();
         res.json({ msg: 'Success' });
     } catch (err) {
+        console.error(err);
         res.status(500).send('Server Error');
     }
 };
 
 // @desc    Update progress
 exports.updateProgress = async (req, res) => {
-    const { courseId, chapterId } = req.body;
+    const { courseId: courseIdentifier, chapterId } = req.body;
     try {
         const user = await User.findById(req.user.id);
+
+        // Resolve course
+        const courses = await getRawCourses();
+        const course = findCourse(courses, courseIdentifier);
+
+        if (!course) return res.status(404).json({ msg: 'Course not found' });
+        const courseId = course._id.toString();
+
         const ci = user.enrolledCourses.findIndex(ec => ec.courseId && ec.courseId.toString() === courseId);
         if (ci > -1) {
             if (!user.enrolledCourses[ci].completedChapters.includes(chapterId)) {
                 user.enrolledCourses[ci].completedChapters.push(chapterId);
-                const courses = await getRawCourses();
-                const course = courses.find(c => c._id.toString() === courseId);
                 let total = 0;
                 course.sections.forEach(s => total += s.chapters.length);
                 user.enrolledCourses[ci].progress = Math.round((user.enrolledCourses[ci].completedChapters.length / total) * 100);

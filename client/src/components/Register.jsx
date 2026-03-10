@@ -89,6 +89,12 @@ const Register = () => {
                         >
                             <option value="English">English</option>
                             <option value="Hindi">Hindi</option>
+                            <option value="Marathi">Marathi</option>
+                            <option value="Bengali">Bengali</option>
+                            <option value="Punjabi">Punjabi</option>
+                            <option value="Tamil">Tamil</option>
+                            <option value="Telugu">Telugu</option>
+                            <option value="Malayalam">Malayalam</option>
                             <option value="Kannada">Kannada</option>
                             <option value="Tulu">Tulu</option>
                             <option value="Konkani">Konkani</option>
